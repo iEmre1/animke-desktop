@@ -1,0 +1,38 @@
+name: Release
+
+# "v" ile başlayan bir etiket gönderilince (ör. v1.0.1) Windows kurulum dosyasını
+# derleyip bu deponun GitHub Releases sayfasında yayınlar. Uygulamanın otomatik
+# güncellemesi ve sitedeki "İndir" düğmesi bu yayını kullanır.
+#
+#   1) package.json'daki "version"ı artır (ör. 1.0.1)
+#   2) git commit -am "1.0.1" && git tag v1.0.1 && git push --follow-tags
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and publish installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Kod imzası yok; electron-builder sertifika aramasın.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run release
