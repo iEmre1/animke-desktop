@@ -1,7 +1,7 @@
 {
   "name": "animke-desktop",
   "productName": "Animke",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Animke için Windows masaüstü uygulaması",
   "author": "Animke",
   "private": true,
@@ -20,6 +20,14 @@
     "appId": "com.animke.desktop",
     "productName": "Animke",
     "copyright": "Animke",
+    "protocols": [
+      {
+        "name": "Animke",
+        "schemes": [
+          "animke"
+        ]
+      }
+    ],
     "directories": {
       "output": "dist",
       "buildResources": "build"

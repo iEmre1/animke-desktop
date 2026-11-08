@@ -26,6 +26,7 @@ const {
   powerSaveBlocker,
   nativeImage,
   globalShortcut,
+  clipboard,
 } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -119,6 +120,7 @@ const settings = {
   notifyEpisodes: true,
   notifyReplies: true,
   mediaKeys: true,
+  detectInvites: true,
   trayHintShown: false,
 };
 function loadSettings() {
@@ -271,7 +273,7 @@ function createWindow() {
   titleView.webContents.loadFile(path.join(__dirname, "titlebar", "titlebar.html"));
   titleView.webContents.once("did-finish-load", () => {
     sendTitlebarState();
-    if (!START_HIDDEN) showWindow();
+    if (!START_HIDDEN || launchLink) showWindow();
   });
 
   const wc = siteView.webContents;
@@ -342,6 +344,7 @@ function createWindow() {
     else if (input.control && (key === "=" || key === "+")) wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 4));
     else if (input.control && key === "-") wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
     else if (input.control && key === "0") wc.setZoomLevel(0);
+    else if (input.control && key === "l") openClipboardLink();
     else if (DEV && input.control && input.shift && key === "i") wc.toggleDevTools();
     else handled = false;
     if (handled) event.preventDefault();
@@ -364,7 +367,11 @@ function createWindow() {
     if (details.isMainFrame && !details.isSameDocument) presence?.removeFramesWithPrefix(`${wc.id}:`);
   });
 
-  wc.loadURL(SITE_URL);
+  wc.loadURL((launchLink && siteUrlFromDeepLink(launchLink)) || SITE_URL);
+  launchLink = null;
+
+  // Uygulamaya geçince panoda oda daveti varsa sor.
+  win.on("focus", () => setTimeout(checkClipboardInvite, 150));
 }
 
 // --- Başlık çubuğu komutları --------------------------------------------------------
@@ -534,6 +541,122 @@ ipcMain.on("animke:party", (event, party) => {
   presence?.setParty({ id, url, size, max });
 });
 
+// --- animke:// bağlantıları ve oda davetleri ---------------------------------------
+// Tarayıcıdaki davet sayfası "Uygulamada aç" deyince animke://oda/<kimlik> açılır;
+// Windows bu adresi uygulamaya verir (yeni örnek açılırsa ilk örneğe iletilir).
+const PROTOCOL = "animke";
+
+function registerProtocol() {
+  // Geliştirme sürümü, kurulu uygulamanın kaydını ezmesin.
+  if (DEV || !app.isPackaged) return;
+  if (!app.isDefaultProtocolClient(PROTOCOL)) app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+const deepLinkFromArgv = (argv) =>
+  (argv || []).find((arg) => typeof arg === "string" && arg.toLowerCase().startsWith(`${PROTOCOL}://`)) || null;
+
+/** animke://oda/abc → https://animke.com/oda/abc (yalnızca Animke'nin kendi sayfaları). */
+function siteUrlFromDeepLink(raw) {
+  try {
+    const link = new URL(raw);
+    if (link.protocol !== `${PROTOCOL}:`) return null;
+    const pathPart = `${link.host}${link.pathname}`.replace(/^\/+/, "");
+    const target = new URL(`/${pathPart}${link.search}`, SITE_URL).toString();
+    return isSiteUrl(target) ? target : null;
+  } catch {
+    return null;
+  }
+}
+
+// Uygulama bir bağlantıyla başlatıldıysa ilk sayfa o olur.
+let launchLink = deepLinkFromArgv(process.argv);
+
+function openDeepLink(raw) {
+  const url = siteUrlFromDeepLink(raw);
+  if (!url) return;
+  if (!site()) {
+    launchLink = raw;
+    return;
+  }
+  showWindow();
+  site().loadURL(url);
+}
+
+/** Metin bir Animke oda daveti mi? Öyleyse açılacak adres. */
+function inviteUrlFrom(text) {
+  try {
+    const url = new URL(text);
+    if (!isSiteUrl(url.toString())) return null;
+    const match = url.pathname.match(/^\/oda\/([a-z0-9]{15})\/?$/);
+    return match ? { url: url.toString(), roomId: match[1] } : null;
+  } catch {
+    return null;
+  }
+}
+
+let lastClipboardInvite = "";
+let invitePromptOpen = false;
+async function checkClipboardInvite() {
+  if (!settings.detectInvites || invitePromptOpen || !win?.isVisible() || !site()) return;
+  const text = clipboard.readText().trim();
+  if (!text || text.length > 300 || text === lastClipboardInvite) return;
+  const invite = inviteUrlFrom(text);
+  if (!invite) return;
+  lastClipboardInvite = text; // aynı davet için bir kez sor
+  // Zaten o odadaysak sorma.
+  if (site().getURL().includes(invite.roomId)) return;
+
+  invitePromptOpen = true;
+  try {
+    const { response, checkboxChecked } = await dialog.showMessageBox(win, {
+      type: "question",
+      title: "Animke",
+      message: "Birlikte izleme daveti",
+      detail: "Kopyaladığın bağlantı bir Animke odası. Odaya katılmak ister misin?",
+      buttons: ["Odaya katıl", "Hayır"],
+      defaultId: 0,
+      cancelId: 1,
+      checkboxLabel: "Bir daha sorma",
+    });
+    if (checkboxChecked) {
+      settings.detectInvites = false;
+      saveSettings();
+      tray?.setContextMenu(buildSettingsMenu());
+    }
+    if (response === 0) site().loadURL(invite.url);
+  } finally {
+    invitePromptOpen = false;
+  }
+}
+
+/** Panodaki Animke bağlantısını (oda daveti, bölüm vb.) uygulamada açar. */
+function openClipboardLink() {
+  const text = clipboard.readText().trim();
+  let target = null;
+  if (text.toLowerCase().startsWith(`${PROTOCOL}://`)) {
+    target = siteUrlFromDeepLink(text);
+  } else {
+    try {
+      const url = new URL(text);
+      if (isSiteUrl(url.toString())) target = url.toString();
+    } catch {
+      // bağlantı değil
+    }
+  }
+  if (!target) {
+    dialog.showMessageBox(win, {
+      type: "info",
+      title: "Animke",
+      message: "Panoda Animke bağlantısı yok",
+      detail: "Önce bir animke.com bağlantısı (ör. oda daveti) kopyala, sonra tekrar dene.",
+    });
+    return;
+  }
+  lastClipboardInvite = text;
+  showWindow();
+  site()?.loadURL(target);
+}
+
 // --- Otomatik güncelleme ----------------------------------------------------------------
 // Yeni sürümler herkese açık GitHub deposundan (iEmre1/animke-desktop) arka planda
 // indirilir; hazır olunca kullanıcıya yeniden başlatmak isteyip istemediği sorulur.
@@ -654,6 +777,7 @@ function buildSettingsMenu() {
       : []),
     { type: "separator" },
     { label: "Animke'yi göster", click: showWindow },
+    { label: "Panodaki bağlantıyı aç (Ctrl+L)", click: openClipboardLink },
     { type: "separator" },
     {
       label: "Reklam engelleme",
@@ -707,6 +831,16 @@ function buildSettingsMenu() {
         settings.mediaKeys = item.checked;
         saveSettings();
         updateMediaKeys();
+        tray?.setContextMenu(buildSettingsMenu());
+      },
+    },
+    {
+      label: "Kopyalanan oda davetlerini algıla",
+      type: "checkbox",
+      checked: settings.detectInvites,
+      click: (item) => {
+        settings.detectInvites = item.checked;
+        saveSettings();
         tray?.setContextMenu(buildSettingsMenu());
       },
     },
@@ -781,7 +915,11 @@ app.on("web-contents-created", (_event, contents) => {
 });
 
 // --- Uygulama yaşam döngüsü ------------------------------------------------------------
-app.on("second-instance", showWindow);
+app.on("second-instance", (_event, argv) => {
+  showWindow();
+  const link = deepLinkFromArgv(argv);
+  if (link) openDeepLink(link);
+});
 app.on("before-quit", () => {
   isQuitting = true;
 });
@@ -797,6 +935,7 @@ app.whenReady().then(() => {
 
   loadSettings();
   applyOpenAtLogin();
+  registerProtocol();
   presence = new PresenceManager({ siteUrl: SITE_URL.startsWith("https:") ? SITE_URL : "https://animke.com", log });
   presence.setEnabled(settings.discord);
   setInterval(() => {

@@ -18,6 +18,9 @@ kendi penceresinde açar; hesabın, listen ve izleme geçmişin sitedekiyle ayn�
 - **Birlikte izleme (tam senkron):** Sitedeki "Birlikte İzle" odalarında durdur,
   oynat ve ileri sar başka sitelerin oynatıcılarında da herkese yansır; Discord
   durumunda "Odaya Katıl" düğmesi ve kişi sayısı görünür.
+- **Oda davetleri uygulamada açılır:** Davet sayfasında "Uygulamada aç" seçilince
+  (`animke://` bağlantısı) oda uygulamada açılır. Kopyalanan davet bağlantıları da
+  algılanır; Ctrl+L panodaki Animke bağlantısını açar.
 - **Mini oynatıcı:** Videoyu her zaman üstte duran küçük pencerede izle.
 - **Medya tuşları:** Klavyedeki oynat/duraklat, sonraki/önceki tuşları (yalnızca
   sayfada video varken; yokken diğer uygulamalara bırakılır).
