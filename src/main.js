@@ -344,7 +344,6 @@ function createWindow() {
     else if (input.control && (key === "=" || key === "+")) wc.setZoomLevel(Math.min(wc.getZoomLevel() + 0.5, 4));
     else if (input.control && key === "-") wc.setZoomLevel(Math.max(wc.getZoomLevel() - 0.5, -3));
     else if (input.control && key === "0") wc.setZoomLevel(0);
-    else if (input.control && key === "l") openClipboardLink();
     else if (DEV && input.control && input.shift && key === "i") wc.toggleDevTools();
     else handled = false;
     if (handled) event.preventDefault();
@@ -629,34 +628,6 @@ async function checkClipboardInvite() {
   }
 }
 
-/** Panodaki Animke bağlantısını (oda daveti, bölüm vb.) uygulamada açar. */
-function openClipboardLink() {
-  const text = clipboard.readText().trim();
-  let target = null;
-  if (text.toLowerCase().startsWith(`${PROTOCOL}://`)) {
-    target = siteUrlFromDeepLink(text);
-  } else {
-    try {
-      const url = new URL(text);
-      if (isSiteUrl(url.toString())) target = url.toString();
-    } catch {
-      // bağlantı değil
-    }
-  }
-  if (!target) {
-    dialog.showMessageBox(win, {
-      type: "info",
-      title: "Animke",
-      message: "Panoda Animke bağlantısı yok",
-      detail: "Önce bir animke.com bağlantısı (ör. oda daveti) kopyala, sonra tekrar dene.",
-    });
-    return;
-  }
-  lastClipboardInvite = text;
-  showWindow();
-  site()?.loadURL(target);
-}
-
 // --- Otomatik güncelleme ----------------------------------------------------------------
 // Yeni sürümler herkese açık GitHub deposundan (iEmre1/animke-desktop) arka planda
 // indirilir; hazır olunca kullanıcıya yeniden başlatmak isteyip istemediği sorulur.
@@ -777,7 +748,6 @@ function buildSettingsMenu() {
       : []),
     { type: "separator" },
     { label: "Animke'yi göster", click: showWindow },
-    { label: "Panodaki bağlantıyı aç (Ctrl+L)", click: openClipboardLink },
     { type: "separator" },
     {
       label: "Reklam engelleme",

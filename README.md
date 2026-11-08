@@ -20,7 +20,8 @@ kendi penceresinde açar; hesabın, listen ve izleme geçmişin sitedekiyle ayn�
   durumunda "Odaya Katıl" düğmesi ve kişi sayısı görünür.
 - **Oda davetleri uygulamada açılır:** Davet sayfasında "Uygulamada aç" seçilince
   (`animke://` bağlantısı) oda uygulamada açılır. Kopyalanan davet bağlantıları da
-  algılanır; Ctrl+L panodaki Animke bağlantısını açar.
+  algılanır. Sitedeki "Bağlantıyla Katıl" düğmesine ya da arama kutusuna davet
+  bağlantısı yapıştırılarak da katılınabilir.
 - **Mini oynatıcı:** Videoyu her zaman üstte duran küçük pencerede izle.
 - **Medya tuşları:** Klavyedeki oynat/duraklat, sonraki/önceki tuşları (yalnızca
   sayfada video varken; yokken diğer uygulamalara bırakılır).

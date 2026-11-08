@@ -1,7 +1,7 @@
 {
   "name": "animke-desktop",
   "productName": "Animke",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Animke için Windows masaüstü uygulaması",
   "author": "Animke",
   "private": true,
