@@ -14,9 +14,16 @@ kendi penceresinde açar; hesabın, listen ve izleme geçmişin sitedekiyle ayn�
   oynatıcıların açtığı reklam pencereleri engellenir.
 - **Otomatik güncelleme:** Yeni sürümler arka planda indirilir.
 - **Ekran uyumaz:** Video oynarken ekran kararmaz.
+- **Başlık çubuğu:** Geri, İleri, Yenile, Ana Sayfa ve Ayarlar düğmeleri.
+- **Arka planda bekler:** Çarpıya basınca uygulama kapanmaz, sistem tepsisinde
+  bekler ve anında açılır (video duraklatılır, Discord durumu silinir).
+  Tamamen kapatmak için tepsi simgesine sağ tıklayıp **Çıkış**.
+- **Windows açılınca başlat** (isteğe bağlı, tepside sessizce başlar).
 - **Her zaman güncel site:** Uygulama siteyi kopyalamaz, `animke.com`'u açar.
 
-Ayarlar sistem tepsisindeki Animke simgesine sağ tıklayınca açılan menüdedir.
+Ayarlar başlık çubuğundaki **Ayarlar** düğmesinde ve tepsi simgesinin sağ tık
+menüsündedir. Kısayollar: F5 yenile, F11 tam ekran, Alt+←/→ geri/ileri,
+Ctrl +/−/0 yakınlaştır.
 
 ## Kurulum uyarısı
 
@@ -40,13 +47,14 @@ koddan derlenir ([Release iş akışı](.github/workflows/release.yml)).
 ```bash
 npm install
 npm start          # animke.com ile çalıştır
-npm run dev        # http://localhost:3000 ile çalıştır (geliştirici araçları: Ctrl+Shift+I)
+npm run dev        # http://localhost:3000 ile çalıştır (ayrı ayar klasörü, geliştirici araçları: Ctrl+Shift+I)
 npm run build      # dist/Animke-Setup.exe oluşturur
 ```
 
 | Dosya | Görevi |
 |---|---|
 | `src/main.js` | Pencere, güvenlik kuralları, tepsi menüsü, güncelleme |
+| `src/titlebar/` | Başlık çubuğu (Geri/İleri/Yenile/Ayarlar) |
 | `src/preload.js` | Siteye açılan arayüz ve oynatıcıdan video süresi okuma |
 | `src/presence.js` | Discord durumunun oluşturulması |
 | `src/discord-rpc.js` | Discord ile bağlantı (harici paket yok) |

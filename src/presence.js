@@ -34,6 +34,7 @@ class PresenceManager {
     this.log = log;
     this.rpc = new DiscordRPC();
     this.enabled = true;
+    this.suspended = false; // pencere tepsiye gizlendiyse durum gösterilmez
     this.info = null; // { title, subtitle, image, url, openedAt }
     this.translator = ""; // izlenen çevirinin (fansub) adı
     this.videos = new Map(); // frameKey -> { currentTime, duration, paused, at }
@@ -46,6 +47,11 @@ class PresenceManager {
 
   setEnabled(enabled) {
     this.enabled = enabled;
+    this.tick(true);
+  }
+
+  setSuspended(suspended) {
+    this.suspended = !!suspended;
     this.tick(true);
   }
 
@@ -146,7 +152,7 @@ class PresenceManager {
     }
     this.busy = true;
     try {
-      if (!this.enabled || !this.info) {
+      if (!this.enabled || this.suspended || !this.info) {
         if (this.active) {
           await this.rpc.setActivity(null).catch(() => {});
           this.active = false;
