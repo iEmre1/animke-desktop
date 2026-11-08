@@ -2,15 +2,46 @@
 // Güvenlik: sayfalara Node/Electron erişimi verilmez; yalnızca birkaç dar
 // mesaj kanalı açılır ve ana süreç her mesajı doğrular.
 
-const { contextBridge, ipcRenderer, webFrame } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 // Sandbox'lı preload'da process.isMainFrame her zaman yok; bu karşılaştırma
 // başka sitelerin iframe'lerinde de güvenle çalışır.
 const isMainFrame = window.top === window;
 
+// --- Reklam açılır pencereleri (yalnızca iframe'ler) -----------------------
+// Fansub oynatıcıları tıklamada reklam penceresi açar. window.open, sayfanın
+// kendi kodları çalışmadan ÖNCE etkisizleştirilir (executeInMainWorld eşzamanlı
+// çalışır). null yerine sahte pencere döner; bazı oynatıcılar null'da bozuluyor.
+// Ana sitenin window.open'ına dokunulmaz (Discord ile giriş penceresi için).
+if (!isMainFrame) {
+  try {
+    contextBridge.executeInMainWorld({
+      func: () => {
+        const fake = {
+          closed: true,
+          opener: null,
+          close() {},
+          focus() {},
+          blur() {},
+          postMessage() {},
+          location: { href: "", assign() {}, replace() {} },
+          document: { write() {}, writeln() {}, open() {}, close() {} },
+        };
+        try {
+          Object.defineProperty(window, "open", { value: () => fake, writable: false, configurable: false });
+        } catch {
+          window.open = () => fake;
+        }
+      },
+    });
+  } catch {
+    // çerçeve kapanmış vb.
+  }
+}
+
 // --- Video durumu (tüm çerçeveler) -----------------------------------------
 // Sayfadaki en uzun <video>'nun süresini birkaç saniyede bir ana sürece bildirir.
-// Ana süreç bunu Discord durumundaki ilerleme çubuğu için kullanır.
+// Ana süreç bunu Discord durumu, ekranın uyumaması ve medya tuşları için kullanır.
 let lastSent = "";
 function reportVideo() {
   let best = null;
@@ -35,23 +66,19 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 window.addEventListener("pagehide", () => ipcRenderer.send("animke:video", null));
 
-// --- Reklam açılır pencereleri (yalnızca iframe'ler) -----------------------
-// Fansub oynatıcıları tıklamada reklam penceresi açar. Ana sitenin kendi
-// window.open'ına dokunulmaz (Discord ile giriş penceresi buna ihtiyaç duyar).
-if (!isMainFrame) {
-  webFrame
-    // null yerine sahte bir pencere döndürülür; bazı oynatıcılar dönen pencereye
-    // dokunur (focus vb.) ve null alınca oynatma bozulur.
-    .executeJavaScript(
-      "(() => { const fake = { closed: true, close() {}, focus() {}, blur() {}, postMessage() {}," +
-        " location: { href: '', assign() {}, replace() {} }, document: { write() {}, close() {} } };" +
-        " window.open = function () { return fake; }; })();",
-    )
-    .catch(() => {});
-}
-
-// --- Siteye açılan arayüz (yalnızca ana çerçeve) ---------------------------
+// --- Ana çerçeve -------------------------------------------------------------
 if (isMainFrame) {
+  // Kullanıcının sitede GERÇEKTEN tıkladığı bağlantılar bildirilir. Uygulama dış
+  // bağlantıyı yalnızca böyle bir tıklamanın sonucuysa tarayıcıda açar; reklam
+  // kodlarının açmaya çalıştıkları engellenir.
+  const reportClick = (event) => {
+    if (!event.isTrusted) return;
+    const link = event.target?.closest?.("a[href]");
+    if (link?.href) ipcRenderer.send("animke:link-click", link.href);
+  };
+  document.addEventListener("click", reportClick, true);
+  document.addEventListener("auxclick", reportClick, true);
+
   contextBridge.exposeInMainWorld("animkeDesktop", {
     isDesktop: true,
     version: ipcRenderer.sendSync("animke:version"),
@@ -69,5 +96,11 @@ if (isMainFrame) {
     clearActivity: () => ipcRenderer.send("animke:activity", null),
     /** İzlenen çevirinin (fansub) adı; Discord durumunda bölümün yanında görünür. */
     setTranslator: (name) => ipcRenderer.send("animke:translator", String(name ?? "").slice(0, 80)),
+    /** Önceki/sonraki bölümün adresi; klavyedeki medya tuşları için. */
+    setEpisodeNav: (nav) =>
+      ipcRenderer.send("animke:episode-nav", {
+        prev: String(nav?.prev ?? "").slice(0, 600),
+        next: String(nav?.next ?? "").slice(0, 600),
+      }),
   });
 }

@@ -10,8 +10,14 @@ kendi penceresinde açar; hesabın, listen ve izleme geçmişin sitedekiyle ayn�
 - **Discord durumu:** Discord'da "Animke izliyor" olarak izlediğin anime, sezon,
   bölüm ve çevirmen görünür. Video oynatıcı başka bir sitede (iframe) olsa bile
   gerçek dakika ve kalan süre gösterilir.
-- **Reklam engelleme:** EasyList tabanlı filtrelerle reklam istekleri ve
-  oynatıcıların açtığı reklam pencereleri engellenir.
+- **Reklam engelleme:** EasyList tabanlı filtrelerle reklam istekleri engellenir.
+  Oynatıcıların açtığı reklam pencereleri ve yönlendirmeleri de engellenir; dış
+  bağlantılar yalnızca sitede gerçekten tıklandıysa tarayıcıda açılır.
+- **Bildirimler:** Listendeki animelerin yeni bölümleri ve yorumlarına gelen
+  yanıtlar için Windows bildirimi (uygulama tepsideyken de).
+- **Mini oynatıcı:** Videoyu her zaman üstte duran küçük pencerede izle.
+- **Medya tuşları:** Klavyedeki oynat/duraklat, sonraki/önceki tuşları (yalnızca
+  sayfada video varken; yokken diğer uygulamalara bırakılır).
 - **Otomatik güncelleme:** Yeni sürümler arka planda indirilir.
 - **Ekran uyumaz:** Video oynarken ekran kararmaz.
 - **Başlık çubuğu:** Geri, İleri, Yenile, Ana Sayfa ve Ayarlar düğmeleri.
@@ -59,6 +65,7 @@ npm run build      # dist/Animke-Setup.exe oluşturur
 | `src/presence.js` | Discord durumunun oluşturulması |
 | `src/discord-rpc.js` | Discord ile bağlantı (harici paket yok) |
 | `src/ad-blocker.js` | Reklam engelleme |
+| `src/notifier.js` | Yeni bölüm ve yorum yanıtı bildirimleri |
 
 ### Yeni sürüm yayınlama
 

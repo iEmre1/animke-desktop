@@ -1,7 +1,7 @@
 // Başlık çubuğu (yerel dosya) için dar arayüz: yalnızca belirli komutlar gönderilir.
 const { contextBridge, ipcRenderer } = require("electron");
 
-const COMMANDS = new Set(["back", "forward", "reload", "home", "settings", "toggle-maximize"]);
+const COMMANDS = new Set(["back", "forward", "reload", "home", "pip", "settings", "toggle-maximize"]);
 
 contextBridge.exposeInMainWorld("titlebar", {
   command: (name, payload) => {

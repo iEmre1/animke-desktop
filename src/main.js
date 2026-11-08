@@ -25,11 +25,13 @@ const {
   session,
   powerSaveBlocker,
   nativeImage,
+  globalShortcut,
 } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const { PresenceManager } = require("./presence");
 const { AdBlocker } = require("./ad-blocker");
+const { Notifier } = require("./notifier");
 
 const DEV = process.argv.includes("--dev");
 const START_HIDDEN = process.argv.includes("--hidden"); // Windows açılışında tepside başla
@@ -65,6 +67,24 @@ const openExternal = (raw) => {
   }
 };
 
+// Kullanıcının sitede gerçekten tıkladığı bağlantılar (preload bildirir). Dış
+// bağlantı yalnızca böyle bir tıklamanın sonucuysa tarayıcıda açılır; reklam
+// kodlarının (oynatıcı iframe'lerinin) açmaya çalıştıkları sessizce engellenir.
+const recentClicks = new Map(); // adres -> zaman
+const normalizeUrl = (raw) => {
+  try {
+    const u = new URL(raw);
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return "";
+  }
+};
+const wasClicked = (raw) => {
+  const at = recentClicks.get(normalizeUrl(raw));
+  return !!at && Date.now() - at < 5_000;
+};
+
 // Bazı oynatıcılar "Electron" içeren tarayıcı kimliğini engelliyor; Chrome gibi görün.
 app.userAgentFallback = app.userAgentFallback
   .replace(/\sElectron\/\S+/i, "")
@@ -92,7 +112,15 @@ const site = () => siteView?.webContents;
 
 // --- Ayarlar ----------------------------------------------------------------------
 const settingsPath = () => path.join(app.getPath("userData"), "settings.json");
-const settings = { adBlock: true, discord: true, openAtLogin: false, trayHintShown: false };
+const settings = {
+  adBlock: true,
+  discord: true,
+  openAtLogin: false,
+  notifyEpisodes: true,
+  notifyReplies: true,
+  mediaKeys: true,
+  trayHintShown: false,
+};
 function loadSettings() {
   try {
     Object.assign(settings, JSON.parse(fs.readFileSync(settingsPath(), "utf8")));
@@ -151,6 +179,7 @@ function sendTitlebarState() {
     canGoForward: wc.navigationHistory.canGoForward(),
     loading: wc.isLoading(),
     title: wc.getTitle(),
+    hasVideo: !!presence?.currentVideo(),
   });
 }
 
@@ -165,11 +194,16 @@ function showWindow() {
 // Çarpıya basınca: pencere gizlenir, uygulama tepside çalışmaya devam eder.
 function hideToTray() {
   if (!win) return;
-  // Gizli pencerede ses gelmesin: tüm çerçevelerdeki videoları duraklat.
-  for (const frame of site()?.mainFrame.framesInSubtree || []) {
-    frame.executeJavaScript("document.querySelectorAll('video').forEach(v => v.pause())").catch(() => {});
-  }
-  presence?.setSuspended(true);
+  // Gizli pencerede ses gelmesin: videoları duraklat. Mini oynatıcıdaki
+  // (resim içinde resim) video oynamaya devam eder.
+  const results = (site()?.mainFrame.framesInSubtree || []).map((frame) =>
+    frame
+      .executeJavaScript(
+        "(() => { document.querySelectorAll('video').forEach(v => v !== document.pictureInPictureElement && v.pause()); return !!document.pictureInPictureElement; })()",
+      )
+      .catch(() => false),
+  );
+  Promise.all(results).then((pip) => presence?.setSuspended(!pip.some(Boolean)));
   win.hide();
   if (!settings.trayHintShown && tray) {
     settings.trayHintShown = true;
@@ -258,11 +292,13 @@ function createWindow() {
   });
 
   // Site görünümü Animke'den başka bir adrese gidemez; o bağlantılar tarayıcıda açılır.
+  // Oynatıcı iframe'lerinin ana sayfayı reklama yönlendirme denemeleri engellenir.
   wc.on("will-navigate", (event, url) => {
-    if (!isSiteUrl(url)) {
-      event.preventDefault();
-      openExternal(url);
-    }
+    if (isSiteUrl(url)) return;
+    event.preventDefault();
+    const fromSite = !event.initiator || event.initiator === wc.mainFrame;
+    if (fromSite && wasClicked(url)) openExternal(url);
+    else log(`engellendi (yönlendirme): ${url}`);
   });
 
   // Yeni pencereler: giriş penceresi uygulama içinde, sitenin kendi bağlantıları
@@ -273,6 +309,7 @@ function createWindow() {
     const fromThirdParty = referrer && !isSiteUrl(referrer) && !isOAuthUrl(referrer);
     if (fromThirdParty) return { action: "deny" };
 
+    // Discord ile giriş: PocketBase önce boş bir pencere açıp sonra Discord'a yönlendirir.
     if (url === "about:blank" || isOAuthUrl(url)) {
       return {
         action: "allow",
@@ -287,7 +324,9 @@ function createWindow() {
         },
       };
     }
-    openExternal(url);
+    // Sitede gerçekten tıklanan dış bağlantılar tarayıcıda; diğer her şey (reklamlar) engellenir.
+    if (wasClicked(url)) openExternal(url);
+    else log(`engellendi (pencere): ${url}`);
     return { action: "deny" };
   });
 
@@ -346,6 +385,9 @@ ipcMain.on("titlebar:command", (event, name, payload) => {
     case "home":
       wc.loadURL(SITE_URL);
       break;
+    case "pip":
+      togglePictureInPicture();
+      break;
     case "toggle-maximize":
       win.isMaximized() ? win.unmaximize() : win.maximize();
       break;
@@ -377,6 +419,30 @@ ipcMain.on("animke:translator", (event, name) => {
   if (!fromSiteView(event) || event.senderFrame !== event.sender.mainFrame) return;
   if (!isSiteUrl(event.senderFrame.url)) return;
   presence?.setTranslator(typeof name === "string" ? name.slice(0, 80) : "");
+});
+
+ipcMain.on("animke:link-click", (event, href) => {
+  if (!fromSiteView(event) || event.senderFrame !== event.sender.mainFrame) return;
+  if (!isSiteUrl(event.senderFrame.url) || typeof href !== "string") return;
+  const key = normalizeUrl(href);
+  if (!key) return;
+  recentClicks.set(key, Date.now());
+  for (const [k, at] of recentClicks) if (Date.now() - at > 10_000) recentClicks.delete(k);
+});
+
+let episodeNav = { prev: "", next: "" };
+ipcMain.on("animke:episode-nav", (event, nav) => {
+  if (!fromSiteView(event) || event.senderFrame !== event.sender.mainFrame) return;
+  if (!isSiteUrl(event.senderFrame.url)) return;
+  const clean = (u) => {
+    try {
+      const abs = new URL(String(u || ""), SITE_URL).toString();
+      return u && isSiteUrl(abs) ? abs : "";
+    } catch {
+      return "";
+    }
+  };
+  episodeNav = { prev: clean(nav?.prev), next: clean(nav?.next) };
 });
 
 ipcMain.on("animke:video", (event, state) => {
@@ -447,6 +513,54 @@ function installUpdateNow() {
   autoUpdater?.quitAndInstall();
 }
 
+// --- Mini oynatıcı (resim içinde resim) ------------------------------------------
+// Videoyu her zaman üstte duran küçük bir pencerede oynatır (Chromium'un kendi
+// PiP penceresi). Başka sitenin iframe'indeki videolarda da çalışır.
+const PIP_SCRIPT = `(async () => {
+  if (document.pictureInPictureElement) { await document.exitPictureInPicture(); return "exit"; }
+  const v = [...document.querySelectorAll("video")].filter(v => v.duration > 60).sort((a, b) => b.duration - a.duration)[0];
+  if (!v) return "none";
+  v.disablePictureInPicture = false;
+  await v.requestPictureInPicture();
+  return "enter";
+})()`;
+async function togglePictureInPicture() {
+  for (const frame of site()?.mainFrame.framesInSubtree || []) {
+    const result = await frame.executeJavaScript(PIP_SCRIPT, true).catch(() => "error");
+    if (result === "enter" || result === "exit") return;
+  }
+}
+
+// --- Klavyedeki medya tuşları ----------------------------------------------------
+// Yalnızca sayfada bir video varken tuşlar Animke'ye ait olur; yokken bırakılır ki
+// Spotify vb. diğer uygulamalar kullanabilsin.
+const TOGGLE_SCRIPT = `(() => {
+  const v = [...document.querySelectorAll("video")].filter(v => v.duration > 60).sort((a, b) => b.duration - a.duration)[0];
+  if (!v) return false;
+  v.paused ? v.play() : v.pause();
+  return true;
+})()`;
+async function togglePlayback() {
+  for (const frame of site()?.mainFrame.framesInSubtree || []) {
+    if (await frame.executeJavaScript(TOGGLE_SCRIPT, true).catch(() => false)) return;
+  }
+}
+let mediaKeysRegistered = false;
+function updateMediaKeys() {
+  const want = settings.mediaKeys && !!presence?.currentVideo();
+  if (want === mediaKeysRegistered) return;
+  mediaKeysRegistered = want;
+  if (!want) {
+    for (const key of ["MediaPlayPause", "MediaNextTrack", "MediaPreviousTrack"]) {
+      if (globalShortcut.isRegistered(key)) globalShortcut.unregister(key);
+    }
+    return;
+  }
+  globalShortcut.register("MediaPlayPause", togglePlayback);
+  globalShortcut.register("MediaNextTrack", () => episodeNav.next && site()?.loadURL(episodeNav.next));
+  globalShortcut.register("MediaPreviousTrack", () => episodeNav.prev && site()?.loadURL(episodeNav.prev));
+}
+
 // --- Windows açılınca başlat ---------------------------------------------------------
 function applyOpenAtLogin() {
   if (!app.isPackaged) return;
@@ -484,6 +598,37 @@ function buildSettingsMenu() {
         settings.discord = item.checked;
         saveSettings();
         presence?.setEnabled(item.checked);
+        tray?.setContextMenu(buildSettingsMenu());
+      },
+    },
+    {
+      label: "Yeni bölüm bildirimleri",
+      type: "checkbox",
+      checked: settings.notifyEpisodes,
+      click: (item) => {
+        settings.notifyEpisodes = item.checked;
+        saveSettings();
+        tray?.setContextMenu(buildSettingsMenu());
+      },
+    },
+    {
+      label: "Yorum yanıtı bildirimleri",
+      type: "checkbox",
+      checked: settings.notifyReplies,
+      click: (item) => {
+        settings.notifyReplies = item.checked;
+        saveSettings();
+        tray?.setContextMenu(buildSettingsMenu());
+      },
+    },
+    {
+      label: "Klavyedeki medya tuşları",
+      type: "checkbox",
+      checked: settings.mediaKeys,
+      click: (item) => {
+        settings.mediaKeys = item.checked;
+        saveSettings();
+        updateMediaKeys();
         tray?.setContextMenu(buildSettingsMenu());
       },
     },
@@ -576,7 +721,11 @@ app.whenReady().then(() => {
   applyOpenAtLogin();
   presence = new PresenceManager({ siteUrl: SITE_URL.startsWith("https:") ? SITE_URL : "https://animke.com", log });
   presence.setEnabled(settings.discord);
-  setInterval(updateKeepAwake, 5_000);
+  setInterval(() => {
+    updateKeepAwake();
+    updateMediaKeys();
+    sendTitlebarState();
+  }, 3_000);
 
   // Reklam filtreleri pencere açılmadan yüklensin ki ilk sayfada da çalışsın
   // (en fazla birkaç saniye bekler; olmazsa engellemesiz devam eder).
@@ -587,8 +736,26 @@ app.whenReady().then(() => {
     createWindow();
     createTray();
     setupAutoUpdater();
+    new Notifier({
+      settings,
+      save: saveSettings,
+      icon: ICON_PATH,
+      log,
+      // Giriş yapan kullanıcı sitenin kendi oturumundan okunur (yalnızca kimlik ve ad).
+      getUser: async () => {
+        const raw = await site()?.executeJavaScript("localStorage.getItem('pocketbase_auth')");
+        const record = raw ? JSON.parse(raw)?.record : null;
+        return record?.id ? { id: String(record.id), username: String(record.username || "") } : null;
+      },
+      openPath: (path) => {
+        showWindow();
+        site()?.loadURL(new URL(path, SITE_URL).toString());
+      },
+    }).start();
   });
 });
+
+app.on("will-quit", () => globalShortcut.unregisterAll());
 
 app.on("window-all-closed", async () => {
   await presence?.dispose();
