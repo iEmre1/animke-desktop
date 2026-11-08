@@ -15,6 +15,9 @@ kendi penceresinde açar; hesabın, listen ve izleme geçmişin sitedekiyle ayn�
   bağlantılar yalnızca sitede gerçekten tıklandıysa tarayıcıda açılır.
 - **Bildirimler:** Listendeki animelerin yeni bölümleri ve yorumlarına gelen
   yanıtlar için Windows bildirimi (uygulama tepsideyken de).
+- **Birlikte izleme (tam senkron):** Sitedeki "Birlikte İzle" odalarında durdur,
+  oynat ve ileri sar başka sitelerin oynatıcılarında da herkese yansır; Discord
+  durumunda "Odaya Katıl" düğmesi ve kişi sayısı görünür.
 - **Mini oynatıcı:** Videoyu her zaman üstte duran küçük pencerede izle.
 - **Medya tuşları:** Klavyedeki oynat/duraklat, sonraki/önceki tuşları (yalnızca
   sayfada video varken; yokken diğer uygulamalara bırakılır).
@@ -45,7 +48,9 @@ koddan derlenir ([Release iş akışı](.github/workflows/release.yml)).
 - Ana pencere yalnızca `animke.com` adresinde kalabilir; diğer bağlantılar
   varsayılan tarayıcında açılır.
 - Siteye açılan arayüz (`window.animkeDesktop`) yalnızca Discord durumunu
-  ayarlayabilir; ana süreç her mesajı doğrular.
+  ayarlayabilir ve birlikte izleme için videoyu oynatıp durdurabilir/sarabilir;
+  bu komutlar yalnızca Animke'nin ana sayfasından kabul edilir ve ana süreç her
+  mesajı doğrular.
 - Kamera, mikrofon, konum gibi izinler reddedilir.
 
 ## Geliştirme

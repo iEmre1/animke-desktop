@@ -456,6 +456,84 @@ ipcMain.on("animke:video", (event, state) => {
   presence?.updateVideo(frameKey(event), state);
 });
 
+// --- Birlikte izleme -------------------------------------------------------------------
+// Site, oda üyelerinin videolarını senkron tutmak için videoyu okuyup kontrol eder.
+// Video çoğunlukla başka sitenin iframe'indedir; normal tarayıcıda erişilemez ama
+// uygulama her çerçevede komut çalıştırabilir. Komutlar yalnızca Animke'nin ana
+// çerçevesinden kabul edilir.
+const fromSiteMainFrame = (event) =>
+  fromSiteView(event) && event.senderFrame === event.sender.mainFrame && isSiteUrl(event.senderFrame.url);
+
+// En uzun (≥60 sn) video; süresi henüz bilinmiyorsa (oynatılmamış oynatıcı) en büyük video.
+const FIND_VIDEO = `const videos = [...document.querySelectorAll("video")];
+  let v = videos.filter(x => x.duration >= 60).sort((a, b) => b.duration - a.duration)[0];
+  if (!v) v = videos.filter(x => !(x.duration > 0) && x.clientWidth >= 200).sort((a, b) => b.clientWidth - a.clientWidth)[0];`;
+
+const PARTY_STATE_SCRIPT = `(() => {
+  ${FIND_VIDEO}
+  if (!v || !(v.duration >= 60)) return null;
+  return { currentTime: v.currentTime, duration: v.duration, paused: v.paused || v.ended };
+})()`;
+
+const partyControlScript = (playing, position) => `(() => {
+  ${FIND_VIDEO}
+  if (!v) return false;
+  v.dataset.animkeSyncUntil = String(Date.now() + 2500);
+  const target = ${JSON.stringify(position)};
+  if (v.duration > 0 && Math.abs(v.currentTime - target) > 1) {
+    v.currentTime = Math.max(0, Math.min(target, v.duration - 1));
+  }
+  if (${playing ? "true" : "false"}) { if (v.paused) v.play().catch(() => {}); }
+  else if (!v.paused) v.pause();
+  return true;
+})()`;
+
+async function runInVideoFrames(script) {
+  for (const frame of site()?.mainFrame.framesInSubtree || []) {
+    const result = await frame.executeJavaScript(script, true).catch(() => null);
+    if (result) return result;
+  }
+  return null;
+}
+
+ipcMain.handle("animke:party-state", async (event) => {
+  if (!fromSiteMainFrame(event)) return null;
+  const state = await runInVideoFrames(PARTY_STATE_SCRIPT);
+  if (!state) return null;
+  const currentTime = Number(state.currentTime);
+  const duration = Number(state.duration);
+  if (!Number.isFinite(currentTime) || !Number.isFinite(duration)) return null;
+  return { currentTime, duration, paused: !!state.paused };
+});
+
+ipcMain.handle("animke:party-control", async (event, command) => {
+  if (!fromSiteMainFrame(event)) return false;
+  const position = Number(command?.position);
+  if (!Number.isFinite(position) || position < 0 || position > 6 * 3600) return false;
+  return !!(await runInVideoFrames(partyControlScript(!!command?.playing, position)));
+});
+
+ipcMain.on("animke:party-event", (event, data) => {
+  if (!fromSiteView(event) || !site() || !isSiteUrl(site().getURL())) return;
+  const currentTime = Number(data?.currentTime);
+  const duration = Number(data?.duration);
+  if (!Number.isFinite(currentTime) || !Number.isFinite(duration) || duration <= 0) return;
+  const type = ["play", "pause", "seeked"].includes(data?.type) ? data.type : "";
+  if (!type) return;
+  site().send("animke:party-event", { type, currentTime, duration, paused: !!data.paused });
+});
+
+ipcMain.on("animke:party", (event, party) => {
+  if (!fromSiteMainFrame(event)) return;
+  if (!party) return presence?.setParty(null);
+  const id = String(party.id || "");
+  const url = String(party.url || "");
+  if (!/^[a-z0-9]{15}$/.test(id) || !isSiteUrl(url)) return;
+  const max = Math.min(Math.max(Number(party.max) || 1, 1), 50);
+  const size = Math.min(Math.max(Number(party.size) || 1, 1), max);
+  presence?.setParty({ id, url, size, max });
+});
+
 // --- Otomatik güncelleme ----------------------------------------------------------------
 // Yeni sürümler herkese açık GitHub deposundan (iEmre1/animke-desktop) arka planda
 // indirilir; hazır olunca kullanıcıya yeniden başlatmak isteyip istemediği sorulur.

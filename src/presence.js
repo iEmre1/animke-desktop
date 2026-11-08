@@ -37,6 +37,7 @@ class PresenceManager {
     this.suspended = false; // pencere tepsiye gizlendiyse durum gösterilmez
     this.info = null; // { title, subtitle, image, url, openedAt }
     this.translator = ""; // izlenen çevirinin (fansub) adı
+    this.party = null; // birlikte izleme odası: { id, url, size, max }
     this.videos = new Map(); // frameKey -> { currentTime, duration, paused, at }
     this.lastSentKey = "";
     this.lastStart = 0;
@@ -75,6 +76,11 @@ class PresenceManager {
   setTranslator(name) {
     this.translator = String(name || "").trim();
     this.tick();
+  }
+
+  setParty(party) {
+    this.party = party ? { ...party } : null;
+    this.tick(true);
   }
 
   updateVideo(frameKey, state) {
@@ -137,11 +143,28 @@ class PresenceManager {
     }
     activity.assets = assets;
 
-    if (isHttp(info.url) && info.url.length <= 512) {
-      activity.buttons = [{ label: "Animke'de İzle", url: info.url }];
+    const buttons = [];
+    const party = this.party;
+    if (party && isHttp(party.url) && party.url.length <= 512) {
+      // Birlikte izleme: "(2 / 10)" kişi sayısı ve tek tıkla katılma düğmesi.
+      activity.party = { id: party.id, size: [party.size, party.max] };
+      buttons.push({ label: "Odaya Katıl", url: party.url });
     }
+    if (isHttp(info.url) && info.url.length <= 512) {
+      buttons.push({ label: "Animke'de İzle", url: info.url });
+    }
+    if (buttons.length) activity.buttons = buttons;
 
-    const key = JSON.stringify([info.title, info.subtitle, this.translator, info.image, info.url, paused, !!video]);
+    const key = JSON.stringify([
+      info.title,
+      info.subtitle,
+      this.translator,
+      info.image,
+      info.url,
+      paused,
+      !!video,
+      party ? [party.id, party.size, party.max] : null,
+    ]);
     return { activity, key, start };
   }
 
@@ -180,6 +203,7 @@ class PresenceManager {
           // Eski Discord sürümleri bazı alanları reddedebilir; sade hâliyle dene.
           delete activity.status_display_type;
           delete activity.buttons;
+          delete activity.party;
           await this.rpc
             .setActivity(activity)
             .then(() => (this.active = true))

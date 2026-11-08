@@ -66,6 +66,39 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 window.addEventListener("pagehide", () => ipcRenderer.send("animke:video", null));
 
+// --- Birlikte izleme: kullanıcının oynat/duraklat/sarma işlemleri ----------------------
+// Uygulamanın kendisi videoyu senkron için değiştirdiğinde video'ya
+// data-animke-sync-until damgası konur; o süre içindeki olaylar kullanıcıdan gelmiyor.
+function mainVideo() {
+  let best = null;
+  for (const video of document.querySelectorAll("video")) {
+    const duration = Number(video.duration);
+    if (!Number.isFinite(duration) || duration < 60) continue;
+    if (!best || duration > best.duration) best = video;
+  }
+  return best;
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  for (const name of ["play", "pause", "seeked"]) {
+    document.addEventListener(
+      name,
+      (event) => {
+        const video = event.target;
+        if (!(video instanceof HTMLVideoElement) || video !== mainVideo()) return;
+        if (Number(video.dataset.animkeSyncUntil || 0) > Date.now()) return;
+        ipcRenderer.send("animke:party-event", {
+          type: name,
+          currentTime: Number(video.currentTime) || 0,
+          duration: Number(video.duration) || 0,
+          paused: video.paused || video.ended,
+        });
+      },
+      true,
+    );
+  }
+});
+
 // --- Ana çerçeve -------------------------------------------------------------
 if (isMainFrame) {
   // Kullanıcının sitede GERÇEKTEN tıkladığı bağlantılar bildirilir. Uygulama dış
@@ -102,5 +135,30 @@ if (isMainFrame) {
         prev: String(nav?.prev ?? "").slice(0, 600),
         next: String(nav?.next ?? "").slice(0, 600),
       }),
+    /** Birlikte izleme odası: Discord'da "Odaya Katıl" ve kişi sayısı; null ile kaldırılır. */
+    setParty: (party) => {
+      if (!party || typeof party !== "object") return ipcRenderer.send("animke:party", null);
+      ipcRenderer.send("animke:party", {
+        id: String(party.id ?? "").slice(0, 64),
+        url: String(party.url ?? "").slice(0, 300),
+        size: Number(party.size) || 1,
+        max: Number(party.max) || 1,
+      });
+    },
+    /** Birlikte izleme: iframe oynatıcılar dahil videoyu okur ve kontrol eder. */
+    party: {
+      getState: () => ipcRenderer.invoke("animke:party-state"),
+      control: (command) =>
+        ipcRenderer.invoke("animke:party-control", {
+          playing: !!command?.playing,
+          position: Number(command?.position) || 0,
+        }),
+      onEvent: (listener) => {
+        if (typeof listener !== "function") return () => {};
+        const handler = (_event, data) => listener(data);
+        ipcRenderer.on("animke:party-event", handler);
+        return () => ipcRenderer.removeListener("animke:party-event", handler);
+      },
+    },
   });
 }
