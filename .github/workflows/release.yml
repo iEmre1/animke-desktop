@@ -30,6 +30,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Sürüm önceden oluşturulur; electron-builder aynı anda iki kez oluşturmaya
+      # çalışınca dosya yüklemeleri kaybolabiliyor.
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME"             --title "Animke ${GITHUB_REF_NAME#v}"             --notes "Windows kurulum dosyası: **Animke-Setup.exe**. Uygulama yüklüyse güncelleme kendiliğinden gelir."
+
       - name: Build and publish installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
