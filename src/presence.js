@@ -35,7 +35,8 @@ class PresenceManager {
     this.rpc = new DiscordRPC();
     this.enabled = true;
     this.suspended = false; // pencere tepsiye gizlendiyse durum gösterilmez
-    this.info = null; // { title, subtitle, image, url, openedAt }
+    this.info = null; // { kind, title, subtitle, image, url, openedAt }
+    this.browseSince = 0; // sitede gezinmeye başlanan an (sayfa değişince süre sıfırlanmasın)
     this.translator = ""; // izlenen çevirinin (fansub) adı
     this.party = null; // birlikte izleme odası: { id, url, size, max }
     this.videos = new Map(); // frameKey -> { currentTime, duration, paused, at }
@@ -60,9 +61,12 @@ class PresenceManager {
     if (!info || !info.title) {
       this.info = null;
     } else {
+      const kind = info.kind === "browse" ? "browse" : "watch";
+      if (kind === "browse" && this.info?.kind !== "browse") this.browseSince = Date.now();
       const sameEpisode =
         this.info && this.info.title === info.title && this.info.subtitle === info.subtitle;
       this.info = {
+        kind,
         title: String(info.title),
         subtitle: String(info.subtitle || ""),
         image: String(info.image || ""),
@@ -112,8 +116,35 @@ class PresenceManager {
     return best;
   }
 
+  /** Sitede gezinirken: "Animke izliyor · Ana sayfada geziniyor". */
+  buildBrowseActivity() {
+    const info = this.info;
+    const activity = {
+      type: 3,
+      status_display_type: 0, // üye listesinde "Animke izliyor"
+      details: atLeast2(truncate(info.title, 128)),
+      timestamps: { start: this.browseSince || info.openedAt },
+    };
+    if (info.subtitle) activity.state = atLeast2(truncate(info.subtitle, 128));
+    const assets = { large_image: `${this.siteUrl}/icon-512x512.png`, large_text: "Animke" };
+    if (isHttps(info.image) && info.image.length <= 256) {
+      // Anime sayfasında kapak büyük, Animke logosu küçük.
+      assets.large_image = info.image;
+      assets.large_text = atLeast2(truncate(info.subtitle || info.title, 128));
+      assets.small_image = `${this.siteUrl}/icon.png`;
+      assets.small_text = "Animke";
+    }
+    activity.assets = assets;
+    if (isHttp(info.url) && info.url.length <= 512) {
+      activity.buttons = [{ label: "Animke'yi Aç", url: info.url }];
+    }
+    const key = JSON.stringify(["browse", info.title, info.subtitle, info.image, info.url]);
+    return { activity, key, start: this.lastStart };
+  }
+
   buildActivity() {
     const info = this.info;
+    if (info.kind === "browse") return this.buildBrowseActivity();
     const video = this.currentVideo();
     const paused = video ? video.paused : false;
 

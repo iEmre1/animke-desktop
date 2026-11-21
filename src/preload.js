@@ -115,11 +115,15 @@ if (isMainFrame) {
   contextBridge.exposeInMainWorld("animkeDesktop", {
     isDesktop: true,
     version: ipcRenderer.sendSync("animke:version"),
-    /** { title, subtitle, image, url } — izlenen anime; null ile temizlenir. */
+    /**
+     * { title, subtitle, image, url, kind } — izlenen anime ("watch") ya da sitede gezinme
+     * ("browse": title ne yaptığı, subtitle ayrıntı); null ile temizlenir. kind: 1.5.0+
+     */
     setActivity: (info) => {
       if (info === null) return ipcRenderer.send("animke:activity", null);
       if (!info || typeof info !== "object") return;
       ipcRenderer.send("animke:activity", {
+        kind: info.kind === "browse" ? "browse" : "watch",
         title: String(info.title ?? "").slice(0, 200),
         subtitle: String(info.subtitle ?? "").slice(0, 200),
         image: String(info.image ?? "").slice(0, 500),
